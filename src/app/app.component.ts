@@ -11,6 +11,8 @@ export class AppComponent {
 
   constructor(private readonly worker: WebWorkerService) {
 
+    this.worker.webWorkerState$((state) => console.log(state));
+
     setTimeout(() => {
 
       this.worker.sendMessage(FetchMessage('GET SWAPI PEOPLE', {
@@ -19,7 +21,7 @@ export class AppComponent {
 
     }, 2000)
 
-    this.worker.workerResponse?.subscribe(({data, id, key}) => {
+    this.worker.workerResponse$(({data, id, key}) => {
       console.log('Key:', key);
       console.log('Id:', id);
       console.log('Data:', data);

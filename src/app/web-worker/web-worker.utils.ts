@@ -5,7 +5,9 @@ import {
   WebWorkerFnAction,
   WebWorkerMsg,
   WebWorkerMsgGenerator,
-  WebWorkerResponses
+  WebWorkerResponses,
+  WebWorkerState,
+  WebWorkerStates
 } from "./web-worker.types";
 
 const isPromise = (value: any): value is Promise<any> => value?.then
@@ -48,3 +50,6 @@ export function generateWebWorkerAction<T, R = any>(key: string, action: WebWork
 }
 
 
+export const initialWorkerState = (): WebWorkerState<any> => ({
+  state: WebWorkerStates.Waiting,
+})
