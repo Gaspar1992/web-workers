@@ -5,4 +5,4 @@ export {
 } from './web-worker.types';
 export {WebWorkerService, WebWorkerConfig} from './web-worker.service'
 export {isWebWorkerDataMsgKey} from './web-worker.utils';
-export {FetchKey, FetchMessage, ConsoleLogKey, ConsoleLogMessage} from './web-worker.actions';
+export * from './web-worker.actions';

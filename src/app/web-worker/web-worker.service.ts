@@ -23,6 +23,7 @@ export const WebWorkerConfig = new InjectionToken<WebWorkerServiceConfig>('[WebW
 export class WebWorkerService implements OnDestroy {
 
   private readonly worker?: Worker;
+  private readonly stack: (WebWorkerMsg<any>)[] = []
   private readonly webWorkerConfig = inject(WebWorkerConfig);
   private readonly _webWorkerState$ = new BehaviorSubject<WebWorkerState<any>>(initialWorkerState())
   private readonly _workerResponse$?: Subject<WebWorkerResponses>
@@ -62,7 +63,9 @@ export class WebWorkerService implements OnDestroy {
 
   sendMessage = <T = any>(message: WebWorkerMsg<T>) => {
     if (this.webWorkerState.state !== WebWorkerStates.Waiting) {
-      console.warn(WEB_WORKER_DOMAIN, 'working', this.webWorkerState.job)
+      this.stack.push(message);
+      this.webWorkerConfig.debug &&
+      console.warn(WEB_WORKER_DOMAIN, 'Added job to stack', this.webWorkerState.job);
       return;
     }
 
@@ -89,6 +92,9 @@ export class WebWorkerService implements OnDestroy {
       this._webWorkerState$.next({
         state: WebWorkerStates.Waiting,
       });
+
+      this.stack.length && this.worker?.postMessage(this.stack.shift());
+
     };
 
     worker.onerror = (error) => {
