@@ -23,10 +23,15 @@ export class WebWorkerService implements OnDestroy {
   private readonly destroy$ = new Subject<void>();
   private readonly mainWorkerName = 'main-ng-worker';
   private readonly workers: NgWebWorker[];
-  private _workersStates!: Observable<WebWorkerState<any>[]>;
-  private _workersResponses!: Observable<WebWorkerResponses>;
   private readonly stack: (WebWorkerMsg<any>)[] = []
   private readonly webWorkerConfig = inject(WebWorkerConfig);
+
+  private _workersStates!: Observable<WebWorkerState<any>[]>;
+  private _workersResponses!: Observable<WebWorkerResponses>;
+
+  get seeStack() {
+    return this.stack;
+  }
 
   get loadingWorkers() {
     return this._loadingWorkers.asObservable();
@@ -124,7 +129,6 @@ export class WebWorkerService implements OnDestroy {
       tap(() => {
         if (this.stack.length)
           this.sendMessage(this.stack.shift() as WebWorkerMsg)
-
       })
     )
   }

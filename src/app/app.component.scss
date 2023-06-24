@@ -1,0 +1,34 @@
+
+table {
+  width: 100%;
+  height: 80vh;
+  border: 1px solid;
+
+  th {
+    width: fit-content;
+    border: 1px solid;
+    text-align: center;
+  }
+
+  tr {
+    text-align: justify;
+    vertical-align: center;
+    min-height: 150px;
+    height: auto;
+
+    td {
+      border: 1px solid;
+
+      &.number {
+        text-align: center;
+      }
+    }
+
+    ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+    }
+  }
+
+}

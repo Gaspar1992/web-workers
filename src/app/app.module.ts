@@ -11,7 +11,7 @@ import {WebWorkerModule} from "./web-worker";
   imports: [
     BrowserModule,
     WebWorkerModule.forRoot({
-      numberWorkers: 5,
+      numberWorkers: 2,
       debug: true
     })
   ],

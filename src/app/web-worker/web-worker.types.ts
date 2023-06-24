@@ -98,12 +98,11 @@ export class NgWebWorker {
       this._webWorkerState$.next({
         ...this.webWorkerState,
         state: WebWorkerStates.Done,
-      });
-      this._workerResponse$?.next(data);
+      })
       this._webWorkerState$.next({
         state: WebWorkerStates.Waiting,
       });
-
+      this._workerResponse$?.next(data);
     };
 
     this.worker.onerror = (error) => {

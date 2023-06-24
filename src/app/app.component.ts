@@ -1,6 +1,7 @@
 import {Component} from '@angular/core';
 import {FetchMessage, WebWorkerService} from "./web-worker";
 import {filter} from "rxjs";
+import {WebWorkerStates} from "./web-worker/web-worker.types";
 
 @Component({
   selector: 'app-root',
@@ -8,11 +9,13 @@ import {filter} from "rxjs";
   styleUrls: ['./app.component.scss']
 })
 export class AppComponent {
-  title = 'ng16';
+  public workersStates?: WebWorkerService['workersStates']
+  public stack: WebWorkerService['stack']
 
   constructor(private readonly worker: WebWorkerService) {
+    this.stack = worker.seeStack;
     this.worker.loadingWorkers.pipe(filter((res) => !res)).subscribe(() => {
-      // this.worker.workersStates.subscribe((state) => console.log(state));
+      this.workersStates = this.worker.workersStates;
       this.worker.workersResponses?.subscribe(({data, id, key}) => {
         console.log('Key:', key);
         console.log('Id:', id);
@@ -33,7 +36,7 @@ export class AppComponent {
         return originalValue.c();
       }
 
-      const stackCheck = 0;
+      const stackCheck = 100;
 
       for (let i = 0; i < stackCheck; i++) {
         this.worker.sendMessage(FetchMessage(`Call ${i}`, {
@@ -43,6 +46,19 @@ export class AppComponent {
     })
 
 
+  }
+
+  setStateIcon(state: WebWorkerStates) {
+    switch (state) {
+      case WebWorkerStates.Done:
+        return "🟢";
+      case WebWorkerStates.Error:
+        return '❌';
+      case WebWorkerStates.Waiting:
+        return '🟡'
+      case WebWorkerStates.Working:
+        return '🟣'
+    }
   }
 
 }
