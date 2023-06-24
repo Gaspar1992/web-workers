@@ -1,4 +1,6 @@
-import {WEB_WORKER_DOMAIN} from "./web-worker.utils";
+import {initialWorkerState, WEB_WORKER_DOMAIN} from "./web-worker.utils";
+import {BehaviorSubject, Subject} from "rxjs";
+import {ConsoleLogMessage} from "./web-worker.actions";
 
 export interface WebWorkerServiceConfig {
   numberWorkers: number,
@@ -44,4 +46,87 @@ export class WebWorkerError extends Error {
     super(error instanceof Error ? error.message : error);
   }
 
+}
+
+export class NgWebWorker {
+
+  get webWorkerState() {
+    return this._webWorkerState$.value;
+  }
+
+  get webWorkerState$() {
+    return this._webWorkerState$.asObservable();
+  }
+
+  get workerResponse$() {
+    return this._workerResponse$?.asObservable();
+  }
+
+  private readonly lastMessage?: WebWorkerMsg<unknown>;
+  private readonly worker: Worker;
+  private readonly _webWorkerState$ = new BehaviorSubject<WebWorkerState<any>>(initialWorkerState())
+  private readonly _workerResponse$: Subject<WebWorkerResponses> = new Subject<WebWorkerResponses>();
+
+  constructor(worker: Worker, debug = false) {
+    this.worker = worker;
+    this.setMessageSubscribes();
+    debug && this.worker.postMessage(ConsoleLogMessage('init', ['Initial Worker Call']))
+  }
+
+  terminate() {
+    this.worker.terminate();
+    this._workerResponse$.complete();
+    this._webWorkerState$.complete();
+  }
+
+  sendMessage = <T = any>(message: WebWorkerMsg<T>) => {
+    if (this.webWorkerState.state !== WebWorkerStates.Waiting) {
+      console.error('WebWorker WORKING, work refused', message)
+      return;
+    }
+
+    this._webWorkerState$.next({
+      state: WebWorkerStates.Working,
+      job: message
+    });
+
+    this.worker.postMessage(message);
+  };
+
+  private setMessageSubscribes() {
+    this.worker.onmessage = ({data}) => {
+      this._webWorkerState$.next({
+        ...this.webWorkerState,
+        state: WebWorkerStates.Done,
+      });
+      this._workerResponse$?.next(data);
+      this._webWorkerState$.next({
+        state: WebWorkerStates.Waiting,
+      });
+
+    };
+
+    this.worker.onerror = (error) => {
+      this._webWorkerState$.next({
+        state: WebWorkerStates.Error,
+        error
+      });
+    }
+
+    this.worker.onmessageerror = ({data: error}: MessageEvent<WebWorkerError>) => {
+      const {key, id, params: data} = this.lastMessage as WebWorkerMsg<unknown>
+      this._workerResponse$?.next({
+        key,
+        data,
+        id,
+        error
+      })
+      this._webWorkerState$.next({
+        state: WebWorkerStates.Error,
+        job: undefined,
+        error
+      });
+
+    }
+  }
 }

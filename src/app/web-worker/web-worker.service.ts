@@ -1,123 +1,132 @@
 import {inject, Injectable, InjectionToken, OnDestroy} from '@angular/core';
 import {
-  WebWorkerError,
+  NgWebWorker,
   WebWorkerMsg,
   WebWorkerResponses,
   WebWorkerServiceConfig,
   WebWorkerState,
   WebWorkerStates
 } from "./web-worker.types";
-import {BehaviorSubject, Subject} from "rxjs";
-import {ConsoleLogMessage} from "./web-worker.actions";
-import {initialWorkerState, WEB_WORKER_DOMAIN} from "./web-worker.utils";
+import {HttpClient} from "@angular/common/http";
+import {BehaviorSubject, combineLatest, merge, Observable, Subject, takeUntil, tap} from "rxjs";
 
 export const WebWorkerConfig = new InjectionToken<WebWorkerServiceConfig>('[WebWorkerService', {
   providedIn: 'root',
-  factory: () => ({numberWorkers: 5, debug: true})
+  factory: () => ({numberWorkers: 2, debug: true})
 })
 
 
-@Injectable({
-  providedIn: 'root'
-})
+@Injectable()
 export class WebWorkerService implements OnDestroy {
 
-  private readonly worker?: Worker;
+  private readonly _loadingWorkers = new BehaviorSubject<boolean>(true);
+  private readonly destroy$ = new Subject<void>();
+  private readonly mainWorkerName = 'main-ng-worker';
+  private readonly workers: NgWebWorker[];
+  private _workersStates!: Observable<WebWorkerState<any>[]>;
+  private _workersResponses!: Observable<WebWorkerResponses>;
   private readonly stack: (WebWorkerMsg<any>)[] = []
   private readonly webWorkerConfig = inject(WebWorkerConfig);
-  private readonly _webWorkerState$ = new BehaviorSubject<WebWorkerState<any>>(initialWorkerState())
-  private readonly _workerResponse$?: Subject<WebWorkerResponses>
-  private readonly lastMessage?: WebWorkerMsg<unknown>;
 
-  get webWorkerState() {
-    return this._webWorkerState$.value;
+  get loadingWorkers() {
+    return this._loadingWorkers.asObservable();
   }
 
-  webWorkerState$(
-    observerOrNext?: Partial<BehaviorSubject<WebWorkerState<any>>> | ((value: WebWorkerState<any>) => void)
-  ) {
-    return this._webWorkerState$.subscribe(observerOrNext);
+  get workersStates() {
+    return this._workersStates;
   }
 
-  workerResponse$(
-    observerOrNext?: Partial<Subject<WebWorkerResponses>> | ((value: WebWorkerResponses) => void)
-  ) {
-    return this._workerResponse$?.subscribe(observerOrNext);
+  get workersResponses() {
+    return this._workersResponses;
   }
 
   constructor() {
-    if (typeof Worker === 'undefined') {
-      console.info('Web Workers are not supported in this environment');
-      return;
+    if (typeof Worker === 'undefined')
+      throw new Error('Web Workers are not supported in this environment');
+    if (this.webWorkerConfig.numberWorkers < 1)
+      throw new Error(`Quantity of WebWorkers setted is incorrect. Nº: ${this.webWorkerConfig.numberWorkers}`);
+
+
+    this.workers = [
+      new NgWebWorker(
+        new Worker(new URL('./global.worker', import.meta.url), {
+          name: 'main-ng-worker',
+          credentials: 'same-origin'
+        }),
+        this.webWorkerConfig.debug
+      )
+    ];
+
+
+    if (this.webWorkerConfig.numberWorkers > 1) {
+
+      inject(HttpClient).get(`${this.mainWorkerName}.js`, {responseType: 'text'}).subscribe((workerText) => {
+        const workerBlob = new Blob([workerText], {type: 'application/javascript'});
+
+        for (let i = 1; i < this.webWorkerConfig.numberWorkers; i++) {
+          const worker = new Worker(
+            URL.createObjectURL(
+              workerBlob
+            ),
+            {
+              name: `secondary-ng-worker-${i}`,
+              credentials: 'same-origin'
+            }
+          );
+          this.workers.push(
+            new NgWebWorker(
+              worker,
+              this.webWorkerConfig.debug
+            )
+          )
+        }
+
+        this.setWorkerSubs();
+        this._loadingWorkers.next(false);
+      })
+    } else {
+      this.setWorkerSubs();
+      this._loadingWorkers.next(false);
     }
+  }
 
-    this._workerResponse$ ??= new Subject<WebWorkerResponses>();
-    this.worker ??= new Worker(new URL('./global.worker', import.meta.url));
-    this.setMessageSubscribes(this.worker);
-
-    if (this.webWorkerConfig.debug) {
-      this.worker.postMessage(ConsoleLogMessage('INIT', ['Web Worker Initialized']))
-    }
-
+  ngOnDestroy(): void {
+    this.workers.forEach((worker) => worker.terminate());
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   sendMessage = <T = any>(message: WebWorkerMsg<T>) => {
-    if (this.webWorkerState.state !== WebWorkerStates.Waiting) {
+    const freeWorker = this.workers.find((worker) => worker.webWorkerState.state === WebWorkerStates.Waiting);
+
+    if (!freeWorker) {
       this.stack.push(message);
-      this.webWorkerConfig.debug &&
-      console.warn(WEB_WORKER_DOMAIN, 'Added job to stack', this.webWorkerState.job);
       return;
     }
 
-    this._webWorkerState$.next({
-      state: WebWorkerStates.Working,
-      job: message
-    });
-
-    this.worker?.postMessage(message);
+    freeWorker.sendMessage(message);
   };
 
-  ngOnDestroy(): void {
-    this.worker?.terminate();
-    this._workerResponse$?.complete();
-  }
+  private setWorkerSubs() {
+    this.destroy$.next();
 
-  private setMessageSubscribes(worker: Worker) {
-    worker.onmessage = ({data}) => {
-      this._webWorkerState$.next({
-        ...this.webWorkerState,
-        state: WebWorkerStates.Done,
-      });
-      this._workerResponse$?.next(data);
-      this._webWorkerState$.next({
-        state: WebWorkerStates.Waiting,
-      });
+    this._workersStates = combineLatest(
+      this.workers.map((worker) => worker.webWorkerState$)
+    ).pipe(
+      takeUntil(this.destroy$)
+    );
 
-      this.stack.length && this.worker?.postMessage(this.stack.shift());
 
-    };
+    this._workersResponses = merge(
+      ...this.workers.map((worker) => worker.workerResponse$)
+    ).pipe(
+      takeUntil(this.destroy$),
+      tap(() => {
+        if (this.stack.length)
+          this.sendMessage(this.stack.shift() as WebWorkerMsg)
 
-    worker.onerror = (error) => {
-      this._webWorkerState$.next({
-        state: WebWorkerStates.Error,
-        error
-      });
-    }
-
-    worker.onmessageerror = ({data: error}: MessageEvent<WebWorkerError>) => {
-      const {key, id, params: data} = this.lastMessage as WebWorkerMsg<unknown>
-      this._workerResponse$?.next({
-        key,
-        data,
-        id,
-        error
       })
-      this._webWorkerState$.next({
-        state: WebWorkerStates.Error,
-        job: undefined,
-        error
-      });
-
-    }
+    )
   }
+
 }
